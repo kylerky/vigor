@@ -63,7 +63,8 @@ fi
 sudo apt-get update
 sudo DEBIAN_FRONTEND=noninteractive \
      apt-get install -y ca-certificates software-properties-common \
-                        patch wget build-essential git cloc
+                        patch wget build-essential git cloc kmod \
+                        iproute2
 
 # If there is a single version of GCC and it's a single digit, as in e.g. GCC 9 on Ubuntu 20.04,
 # our clang won't detect it because it expects a version in the format x.y.z with all components
