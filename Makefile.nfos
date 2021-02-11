@@ -170,8 +170,8 @@ LIBS = -lgcc
 QEMUFLAGS = -enable-kvm -cdrom $(ISO) -cpu host,migratable=off -m 1G
 #QEMUFLAGS += -curses
 QEMUFLAGS += -nographic
-QEMUFLAGS += -device vfio-pci,host=06:00.0
-QEMUFLAGS += -device vfio-pci,host=06:00.1
+QEMUFLAGS += -device vfio-pci,host=83:00.0
+QEMUFLAGS += -device vfio-pci,host=83:00.1
 # QEMUFLAGS += -no-hpet -nodefaults -no-acpi -vga std
 # QEMUFLAGS += -object memory-backend-file,id=mem,prealloc=on,size=1G,mem-path=/mnt/huge1GB
 

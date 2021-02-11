@@ -1,0 +1,5 @@
+-march=native
+-ffreestanding
+-flto
+-DCAPACITY_POW2
+-DNF_ARGUMENTS="nf","--eth-dest","0,01:23:45:67:89:00","--eth-dest","1,01:23:45:67:89:01"
