@@ -62,6 +62,7 @@ BITS 32
 
 ; This is the entry point of NFOS, execution starts here
 start:
+    mov edi, ebx
     ; We must first check that the CPU features that we require are supported.
     ; Because we need to use the CPUID instruction to perform these checks, the
     ; first step we must take is to ensure that the CPU supports the CPUID
@@ -81,7 +82,7 @@ start:
     ;
     ; Because PUSHFD and POPFD read and write memory at the address pointed to
     ; by the stack pointer (ESP register), and pushing a 32-bit value to the stack
-    ; decrements the stack pointer by 4, we must ensure that th stack pointer
+    ; decrements the stack pointer by 4, we must ensure that the stack pointer
     ; points to the bottom of a readable and writable region of memory at least
     ; 4 bytes in size. We instruct the assembler to allocate 1MiB of space for
     ; the stack and place the label stack_bottom at the highest address in that
@@ -89,6 +90,84 @@ start:
     ; will not access invalid memory.
     mov esp, stack_bottom
 
+    call .check_cpu_features
+
+    ; Because execution has reached this point, we know that the CPU supports all the
+    ; features that we require.
+    ; According to section 9.8.5 - Initializing IA-32e Mode of the CPU manual
+    ; we need to follow these steps in order to switch to 64-bit mode.
+    ;
+    ; 1 - Starting from protected mode, disable paging. Because we assume that
+    ;   we are already in protected mode and that paging is disabled, this step
+    ;   is not needed.
+    ;
+    ; 2 - Enable physical-address extensions (PAE) by setting bit 5 in register CR4.
+    ;   Reading and writing this register is only possible at privilege level (CPL)
+    ;   0, which we assume.
+    ;
+    ; Bitwise ORing a register with a bit mask will set all the bits in that mask.
+    ; All other bits are unchanged.
+    mov eax, cr4
+    or eax, 1 << 5
+    mov cr4, eax
+
+
+    ; 3 - Load CR3 with the physical base address of the top level page table.
+    ;
+    ; Even though NFOS does not make use of virtual memory, 64-bit mode still
+    ; requires that we set up paging and page tables. x86 CPUs use  4-level
+    ; hierarchical page tables in 64-bit mode and support page sizes of 4 KiB,
+    ; 2 MiB and 1 GiB. NFOS uses 1 GiB pages because they occupy the least amount
+    ; of space in the TLB for a given mapping size. We are not concerned with the
+    ; 1GiB granularity because NFOS does not use multiple address spaces or
+    ; memory protection.
+    ;
+    ; The top level (PML4) of a page table hierarchy is always required and each
+    ; of its entries references a page table of the second-highest level,
+    ; which in turn controls access to a 512 GiB region of the address space.
+    ; Because we assume that software will only access memory in the lowest 4 GiB, the
+    ; PML4 set up by NFOS will only have one valid entry - the first.
+    ;
+    ; The second-highest level (PDPT) of a page table hierarchy is also
+    ; required. Each entry controls access to a 1 GiB region of the address space.
+    ; If the page size flag (bit 7) of a PDPT entry is set, the entry maps a 1
+    ; GiB page, otherwise it references the next-lowest level of the page table
+    ; hierarchy. Because we assume that software never accesses any memory outside
+    ; of the first 4 GiB, NFOS will only set up the first 4 entries of its PDPT.
+    ; Each of those entries will map a 1 GiB page with all permissions.
+    ;
+    ; The following code sets up the first (and only) entry in NFOS' PML4.
+    ;   - Bits (M-1):12 of the PML4 entry (PML4E) must contain bits (M-1):12 of
+    ;       the base address of a 4 KiB-aligned PDPT, where M is at most 52
+    ;   - Bit 0 (P flag) must be set
+    ;   - Bit 1 (R/W flag) must be set to allow writes to the region of memory
+    ;       controlled by this entry. Because NFOS does not use memory protection
+    ;       this bit will be set.
+    ;   - All other bits will be set to 0.
+    ;
+    ; Because we instruct the assembler to place the PDPT at a 4 KiB aligned
+    ; address, and we assume that this address is located in the lowest 4 GiB of
+    ; memory (like the rest of the executable image), the value of the PML4E is
+    ; equal to the addrss of the PDPT bitwise ORed with 0b11 (P and R/W flags).
+    ;
+    ; Load the address of the PDPT into EAX and set the present and writable
+    ; flags in it. Because the PML4 is initialized to 0, we only need to write
+    ; the lowest 32 bits of the first PML4E, the rest are already 0.
+    mov eax, pdpt
+    or eax, 0b11
+    ; Write to the first PML4E
+    mov [pml4], eax
+
+    call .enter_ia32e
+    ; Because the CPU caches segment descriptors in private registers, it is not
+    ; enough to load a new GDT. NFOS must also explicitly load the new CS
+    ; descriptor by setting the CS register. Unlike other segment registers, CS
+    ; cannot be loaded with the MOV instruction, but only with the JMP, CALL and
+    ; RET instructions. Because we want the JMP instruction to set both the
+    ; instruction pointer and code segment, we need to use a far jump instruction.
+    jmp gdt64.code_segment:.64_bit
+
+.check_cpu_features:
     ; We assume that we are in protected mode with a 32-bit code segment,
     ; and that we are not in virtual-8086 mode, therefore the current
     ; operand-size attribute is 32. We assume that paging is disabled so PUSHFD
@@ -120,7 +199,7 @@ start:
 
     ; This instruction computes the bitwise XOR between the value of
     ; the EAX register and the immediate 1 << 21. Constant expressions are
-    ; evaluated by the assembler so the CPU does not execute the right shift.
+    ; evaluated by the assembler so the CPU does not execute the left shift.
     ; This will complement the value of the 21st bit of the EAX register, and
     ; all other bits will be unaffected. Because EAX contains the value of the
     ; EFLAGS register at the time PUSHFD was executed, after this instruction
@@ -262,11 +341,12 @@ start:
     ;   EDX.MSR[bit 5] (support for reading and writing model-specific registers/MSRs)
     ;   EDX.PAE[bit 6] (support for PAE - required for 64-bit mode)
     ;   EDX.CX8[bit 8] (support for CMPXCHG8B)
+    ;   EDX.APIC[bit 9] (support for APIC - required for multiple-processor initialization)
     ;   EDX.MMX[bit 23] (support for MMX)
     ;   EDX.FXSR[bit 24] (support for FXSAVE/FXRSTOR)
     ;   EDX.SSE[bit 25] (support for SSE)
     ;   EDX.SSE2[bit 26] (support for SSE2)
-    mov eax, (1 << 0) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 8) | (1 << 23) | (1 << 24) | (1 << 25) | (1 << 26)
+    mov eax, (1 << 0) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 8) | (1 << 9) | (1 << 23) | (1 << 24) | (1 << 25) | (1 << 26)
     and edx, eax
     cmp edx, eax
     jnz .unsupported_cpu
@@ -286,74 +366,9 @@ start:
     bt edx, 8
     jnc .unsupported_cpu
 
+    ret
 
-    ; Because execution has reached this point, we know that the CPU supports all the
-    ; features that we require.
-    ; According to section 9.8.5 - Initializing IA-32e Mode of the CPU manual
-    ; we need to follow these steps in order to switch to 64-bit mode.
-    ;
-    ; 1 - Starting from protected mode, disable paging. Because we assume that
-    ;   we are already in protected mode and that paging is disabled, this step
-    ;   is not needed.
-    ;
-    ; 2 - Enable physical-address extensions (PAE) by setting bit 5 in register CR4.
-    ;   Reading and writing this register is only possible at privilege level (CPL)
-    ;   0, which we assume.
-    ;
-    ; Bitwise ORing a register with a bit mask will set all the bits in that mask.
-    ; All other bits are unchanged.
-    mov eax, cr4
-    or eax, 1 << 5
-    mov cr4, eax
-
-
-    ; 3 - Load CR3 with the physical base address of the top level page table.
-    ;
-    ; Even though NFOS does not make use of virtual memory, 64-bit mode still
-    ; requires that we set up paging and page tables. x86 CPUs use  4-level
-    ; hierarchical page tables in 64-bit mode and support page sizes of 4 KiB,
-    ; 2 MiB and 1 GiB. NFOS uses 1 GiB pages because they occupy the least amount
-    ; of space in the TLB for a given mapping size. We are not concerned with the
-    ; 1GiB granularity because NFOS does not use multiple address spaces or
-    ; memory protection.
-    ;
-    ; The top level (PML4) of a page table hierarchy is always required and each
-    ; of its entries references a page table of the second-highest level,
-    ; which in turn controls access to a 512 GiB region of the address space.
-    ; Because we assume that software will only access memory in the lowest 4 GiB, the
-    ; PML4 set up by NFOS will only have one valid entry - the first.
-    ;
-    ; The second-highest level (PDPT) of a page table hierarchy is also
-    ; required. Each entry controls access to a 1 GiB region of the address space.
-    ; If the page size flag (bit 7) of a PDPT entry is set, the entry maps a 1
-    ; GiB page, otherwise it references the next-lowest level of the page table
-    ; hierarchy. Because we assume that software never accesses any memory outside
-    ; of the first 4 GiB, NFOS will only set up the first 4 entries of its PDPT.
-    ; Each of those entries will map a 1 GiB page with all permissions.
-    ;
-    ; The following code sets up the first (and only) entry in NFOS' PML4.
-    ;   - Bits (M-1):12 of the PML4 entry (PML4E) must contain bits (M-1):12 of
-    ;       the base address of a 4 KiB-aligned PDPT, where M is at most 52
-    ;   - Bit 0 (P flag) must be set
-    ;   - Bit 1 (R/W flag) must be set to allow writes to the region of memory
-    ;       controlled by this entry. Because NFOS does not use memory protection
-    ;       this bit will be set.
-    ;   - All other bits will be set to 0.
-    ;
-    ; Because we instruct the assembler to place the PDPT at a 4 KiB aligned
-    ; address, and we assume that this address is located in the lowest 4 GiB of
-    ; memory (like the rest of the executable image), the value of the PML4E is
-    ; equal to the addrss of the PDPT bitwise ORed with 0b11 (P and R/W flags).
-    ;
-    ; Load the address of the PDPT into EAX and set the present and writable
-    ; flags in it. Because the PML4 is initialized to 0, we only need to write
-    ; the lowest 32 bits of the first PML4E, the rest are already 0.
-    mov eax, pdpt
-    or eax, 0b11
-    ; Write to the first PML4E
-    mov [pml4], eax
-
-
+.enter_ia32e:
     ; The CR3 register references the PML4. Bits (M-1):12 point to the base
     ; address of a 4 KiB-aligned PML4. All othr bits enable features that NFOS
     ; does not require, and therefore they can be 0.
@@ -399,14 +414,7 @@ start:
     ; the GDT.
     lgdt [gdt64.descriptor]
 
-    ; Because the CPU caches segment descriptors in private registers, it is not
-    ; enough to load a new GDT. NFOS must also explicitly load the new CS
-    ; descriptor by setting the CS register. Unlike other segment registers, CS
-    ; cannot be loaded with the MOV instruction, but only with the JMP, CALL and
-    ; RET instructions. Because we want the JMP instruction to set both the
-    ; instruction pointer and code segment, we need to use a far jump instruction.
-    jmp gdt64.code_segment:.64_bit
-
+    ret
 
 .unsupported_cpu:
     ; This loops forever, halting the machine
@@ -431,6 +439,27 @@ BITS 64
     mov fs, ax
     mov gs, ax
 
+    ; NFOS needs to guarantee that the stack pointer is aligned on a 16-byte
+    ; boundary before main() is invoked. We instruct the assembler to align
+    ; stack_bottom to a 16-byte boundary.
+    mov esp, stack_bottom
+
+    call .before_main
+
+    ; NFOS needs to guarantee that the stack pointer is aligned on a 16-byte
+    ; boundary before main() is invoked. We instruct the assembler to align
+    ; stack_bottom to a 16-byte boundary.
+    mov esp, stack_bottom
+
+    mov edi, edi
+    ; At this point all the preconditions have been satisfied and NFOS can invoke
+    ; the C main function
+    call main
+
+    ; main() never returns, therefore this code is unreachable.
+    jmp nfos_halt
+
+.before_main:
     ; Even though we have ensured that the CPU supports AVX and SSE instructions,
     ; they need to be enabled or the CPU will generate an exception when they
     ; are used.
@@ -458,19 +487,7 @@ BITS 64
     or eax, 7
     xsetbv
 
-    ; NFOS needs to guarantee that the stack pointer is aligned on a 16-byte
-    ; boundary before main() is invoked. We instruct the assembler to align
-    ; stack_bottom to a 16-byte boundary.
-    mov esp, stack_bottom
-
-    ; At this point all the preconditions have been satisfied and NFOS can invoke
-    ; the C main function
-    call main
-
-    ; main() never returns, therefore this code is unreachable.
-    jmp nfos_halt
-
-
+    ret
 
 section .bss
 ; Stack space, statically allocated. We use stack_top to refer to the lowest
@@ -479,7 +496,8 @@ section .bss
 ; to the stack.
 stack_top:
     ; We guarantee 1 MiB (2^20 bytes) of stack space
-    resb 1 << 20
+    ; for each of the processors (32 at most)
+    times 32 resb 1 << 20
 
 ; We guarantee that the stack pointer is aligned to 16 bytes before main() is
 ; invoked. Therefore we instruct the assembler to align the top of the stack

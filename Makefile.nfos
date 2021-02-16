@@ -135,7 +135,7 @@ C_SRCS = $(NF_FILES) $(NF_COMMON_SOURCES) $(DPDK_SRCS) \
          $(STUBS_SRCS) $(KERNEL_SRCS)
 C_OBJS := $(patsubst %.c, %.o, $(C_SRCS))
 
-BOOT_SRCS = $(KERNEL_DIR)/asm/boot.asm
+BOOT_SRCS = $(KERNEL_DIR)/asm/boot_ensemble.asm
 MULTIBOOT1_SRC = $(KERNEL_DIR)/asm/multiboot1_header.asm
 MULTIBOOT2_SRC = $(KERNEL_DIR)/asm/multiboot2_header.asm
 
@@ -161,13 +161,14 @@ OBJS = $(BOOT_OBJS) $(CRTI_OBJ) $(CRTBEGIN_OBJ) \
 DEFS = $(NF_DEFS) $(DPDK_DEFS) $(KERNEL_DEFS)
 INCLUDES = $(NF_INCLUDES) $(DPDK_INCLUDES) $(OTHER_INCLUDES) $(KERNEL_INCLUDES)
 
-NASMFLAGS = -felf64
+NASMFLAGS = -felf64 -i $(KERNEL_DIR)/asm/
 LDFLAGS = -T $(LINKER_SCRIPT) -nostdlib -Wl,--nmagic
 LIBS = -lgcc
 
 # migratable=off is needed otherwise the hypervisor won't report the TSC
 # frequency as invariant
 QEMUFLAGS = -enable-kvm -cdrom $(ISO) -cpu host,migratable=off -m 1G
+QEMUFLAGS = -smp $(shell nproc --all)
 #QEMUFLAGS += -curses
 QEMUFLAGS += -nographic
 QEMUFLAGS += -device vfio-pci,host=06:00.0

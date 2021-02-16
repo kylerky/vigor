@@ -43,7 +43,15 @@ void *realloc(void *ptr, size_t new_size) {
     return malloc(new_size);
   }
 
-  assert(false && "Not implemented yet");
+  if (new_size == 0) {
+    free(ptr);
+    return NULL;
+  }
+
+  void *ptr_new = malloc(new_size);
+  memmove(ptr_new, ptr, new_size);
+  free(ptr);
+  return ptr_new;
 }
 
 void *calloc(size_t num, size_t size) {
