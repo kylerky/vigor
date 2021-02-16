@@ -62,7 +62,10 @@ BITS 32
 
 ; This is the entry point of NFOS, execution starts here
 start:
+    ; We save the pointer to the boot information provided according to the
+    ; Multiboot2 specification to edi
     mov edi, ebx
+
     ; We must first check that the CPU features that we require are supported.
     ; Because we need to use the CPUID instruction to perform these checks, the
     ; first step we must take is to ensure that the CPU supports the CPUID
@@ -90,6 +93,10 @@ start:
     ; will not access invalid memory.
     mov esp, stack_bottom
 
+    ; The function checks that the CPU has the features that we need.
+    ;
+    ; It will push a 32-bit address to the stack, which now has 1MiB of space
+    ; available. Therefore, calling this function is safe.
     call .check_cpu_features
 
     ; Because execution has reached this point, we know that the CPU supports all the
@@ -158,6 +165,11 @@ start:
     ; Write to the first PML4E
     mov [pml4], eax
 
+    ; This function puts the processor in IA32e mode. When the function returns,
+    ; the processors will operate in compatibility mode.
+    ;
+    ; It will push a 32-bit address to the stack, which now has 1MiB of space
+    ; available. Therefore, calling this function is safe.
     call .enter_ia32e
     ; Because the CPU caches segment descriptors in private registers, it is not
     ; enough to load a new GDT. NFOS must also explicitly load the new CS
@@ -183,7 +195,7 @@ start:
     ; the value of the EFLAGS register. We assume that the stack segment is a
     ; 32-bit segment so the stack address size is 32-bit. The operand is a
     ; 32-bit register so the operand size is 32 bit. Therefore this instruction
-    ; will read a 32-bit value from the memory adress pointed to by ESP and
+    ; will read a 32-bit value from the memory address pointed to by ESP and
     ; write it in EAX, then increment the stack pointer by 4.
     ; Because the stack segment has a base of 0 and a limit of 0xffffffff the
     ; value of ESP after this instruction cannot be outside the stack segment
@@ -414,6 +426,12 @@ start:
     ; the GDT.
     lgdt [gdt64.descriptor]
 
+    ; According to section 9.8.5 - Initializing IA-32e Mode of the CPU manual,
+    ; with CS.D=1 and CS.L=0, the processor operates in compatibility mode, and
+    ; the default operand and address size is 32 bits.
+    ;
+    ; This instruction increments the stack pointer by 4 and directs the
+    ; execution to the location pointed to by the stack pointer.
     ret
 
 .unsupported_cpu:
@@ -439,11 +457,16 @@ BITS 64
     mov fs, ax
     mov gs, ax
 
-    ; NFOS needs to guarantee that the stack pointer is aligned on a 16-byte
-    ; boundary before main() is invoked. We instruct the assembler to align
-    ; stack_bottom to a 16-byte boundary.
+    ; According to section 3.4.1 - General-Purpose Registers of the CPU manual
+    ; the upper 32 bits of rsp are undefined in 32-bit modes. Therefore, we will
+    ; need to put the stack pointer to esp, which will be zero extended to the
+    ; 64-bit value of rsp.
     mov esp, stack_bottom
 
+    ; This function enables the features that we need before calling main.
+    ;
+    ; It will push a 64-bit address to the stack, which now has 1MiB of space
+    ; available. Therefore, calling this function is safe.
     call .before_main
 
     ; NFOS needs to guarantee that the stack pointer is aligned on a 16-byte
@@ -451,6 +474,10 @@ BITS 64
     ; stack_bottom to a 16-byte boundary.
     mov esp, stack_bottom
 
+    ; According to section 3.4.1 - General-Purpose Registers of the CPU manual
+    ; the upper 32 bits of rdi are undefined in 32-bit modes.
+    ;
+    ; This instruction will set the upper 32 bits of rdi to zeros.
     mov edi, edi
     ; At this point all the preconditions have been satisfied and NFOS can invoke
     ; the C main function
@@ -487,6 +514,8 @@ BITS 64
     or eax, 7
     xsetbv
 
+    ; This instruction increments the stack pointer by 4 and directs the
+    ; execution to the location pointed to by the stack pointer.
     ret
 
 section .bss
@@ -497,6 +526,9 @@ section .bss
 stack_top:
     ; We guarantee 1 MiB (2^20 bytes) of stack space
     ; for each of the processors (32 at most)
+    ;
+    ; The BSP takes the 1MiB at the very bottom. The APs takes the space from
+    ; the top, one after the other in the order of their initialisation.
     times 32 resb 1 << 20
 
 ; We guarantee that the stack pointer is aligned to 16 bytes before main() is
