@@ -98,7 +98,7 @@ ap_protected:
     ; increment nfos_ap_index once they enter nfos_ap_main. The BSP will not
     ; start new APs until the AP increment nfos_ap_index so there will be no
     ; race condition.
-    mov eax, nfos_ap_index
+    mov eax, dword [nfos_ap_index]
     shl eax, 20
     lea esp, [eax + stack_top]
 
@@ -159,7 +159,7 @@ BITS 64
     ; the upper 32 bits of rsp are undefined in 32-bit modes. Therefore, we will
     ; need to put the stack pointer to esp, which will be zero extended to the
     ; 64-bit value of rsp.
-    mov eax, nfos_ap_index
+    mov eax, dword [nfos_ap_index]
     shl eax, 20
     lea esp, [eax + stack_top]
 
@@ -172,7 +172,7 @@ BITS 64
     ; NFOS needs to guarantee that the stack pointer is aligned on a 16-byte
     ; boundary before nfos_ap_main() is invoked. We instruct the assembler to
     ; align stack_bottom to a 16-byte boundary.
-    mov eax, nfos_ap_index
+    mov eax, dword [nfos_ap_index]
     shl eax, 20
     lea esp, [eax + stack_top]
 
