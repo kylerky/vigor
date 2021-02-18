@@ -56,33 +56,23 @@ int main(nfos_multiboot2_header_t *mb2_hdr) {
     printf("Failed to parse Multiboot2 boot information\n");
     abort();
   }
-  printf("lower %lu\n", boot_info.mem_lower);
-  printf("num_cpus %lu\n", boot_info.num_cpus);
 
   if (!copy_ap_init_code((void *)AP_INIT_CODE_ADDRESS, &boot_info)) {
     printf("Failed to copy AP initialization code to lower memory\n");
     abort();
   }
 
-  for (size_t i = 0; i < boot_info.num_cpus; ++i) {
-    printf("cpu %u\n", boot_info.cpus[i]);
-  }
-
   while (nfos_ap_index < boot_info.num_cpus) {
     uint8_t current_ap_index = nfos_ap_index;
-    printf("Starting cpu with APIC id %u\n", boot_info.cpus[current_ap_index]);
+    uint8_t cpu_id = boot_info.cpus[current_ap_index];
+    printf("Starting cpu with APIC id %u\n", cpu_id);
 
     asm volatile("mfence" ::: "memory");
-    printf("Sending init\n");
-    nfos_apic_send_ipi(boot_info.cpus[current_ap_index], NFOS_IPI_INIT, 0);
-    printf("Sending SIPI\n");
-    nfos_apic_send_ipi(boot_info.cpus[current_ap_index], NFOS_IPI_STARTUP,
-                       AP_INIT_CODE_ADDRESS >> PAGE_SIZE_BITS);
+    nfos_apic_send_init(cpu_id);
+    nfos_apic_send_sipi(cpu_id, AP_INIT_CODE_ADDRESS >> PAGE_SIZE_BITS);
 
-    printf("Spinning\n");
     while (current_ap_index == nfos_ap_index) {
     }
-    printf("Spinning done\n");
   }
 
   abort();
@@ -110,7 +100,6 @@ int main(nfos_multiboot2_header_t *mb2_hdr) {
 }
 
 static bool copy_ap_init_code(void *dest, boot_info_t *info) {
-  printf("ap_init: start %x\nend %x\n", ap_init_start, ap_init_end);
   size_t code_size = (size_t)(ap_init_end - ap_init_start);
   size_t mem_lower = info->mem_lower << NFOS_MULTIBOOT2_MEM_LOWER_LSHIFT;
   if (AP_INIT_CODE_ADDRESS + code_size > mem_lower) {
