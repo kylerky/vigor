@@ -75,8 +75,6 @@ int main(nfos_multiboot2_header_t *mb2_hdr) {
     }
   }
 
-  abort();
-
   int num_devs;
   struct nfos_pci_nic *devs;
 
@@ -116,6 +114,6 @@ static bool copy_ap_init_code(void *dest, boot_info_t *info) {
 int nfos_ap_main(void) {
   printf("ap_main\n");
   ++nfos_ap_index;
-  abort();
+  nfos_halt();
   return 0;
 }

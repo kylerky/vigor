@@ -18,8 +18,6 @@ void __vsyscall6() { abort(); }
 
 int __xmknod() { abort(); }
 
-int __xstat() { abort(); }
-
 void connect() { abort(); }
 
 void dlerror() { abort(); }

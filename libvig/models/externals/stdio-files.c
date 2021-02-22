@@ -582,6 +582,10 @@ int __libc_open(const char *pathname, int flags, mode_t mode) {
   return open(pathname, flags, mode);
 }
 
+int __xstat(int version, const char *path, struct stat *buf) {
+  return stat(path, buf);
+}
+
 void stub_stdio_files_init(struct nfos_pci_nic *devs, int n) {
   // Helper methods declarations
   char *stub_pci_file(const char *device_name, const char *file_name);
@@ -751,7 +755,7 @@ void stub_stdio_files_init(struct nfos_pci_nic *devs, int n) {
   // /sys stuff
   // We pretend all CPUs on NUMA node 0 exist
   stub_add_file("/sys/devices/system/cpu/cpu0/topology/core_id",
-                "0"); // CPU 0 is core ID 0
+                "0\n"); // CPU 0 is core ID 0
 
   stub_add_file("/sys/devices/system/node/node0/cpu0", 0);
 
