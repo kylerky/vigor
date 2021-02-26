@@ -46,6 +46,6 @@ enum nfos_multiboot2_types {
 };
 
 bool nfos_get_boot_info(nfos_multiboot2_header_t *mb2_header,
-                        boot_info_t *info);
+                        nfos_boot_info_t *info);
 
 #endif // NFOS_MULTIBOOT2_H

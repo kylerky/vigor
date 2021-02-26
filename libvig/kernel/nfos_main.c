@@ -27,17 +27,19 @@ extern int nf_main(int argc, char *argv[]);
 /* Initialize filesystem */
 extern void stub_stdio_files_init(struct nfos_pci_nic *devs, int n);
 
-extern volatile uint32_t nfos_ap_index;
-volatile uint32_t nfos_ap_index = 1;
-
 extern void ap_init_start(void);
 extern void ap_init_end(void);
 
-static bool copy_ap_init_code(void *dest, boot_info_t *info);
+static bool copy_ap_init_code(void *dest, nfos_boot_info_t *info);
 
 #ifdef VIGOR_MODEL_HARDWARE
 extern struct nfos_pci_nic *stub_hardware_get_nics(int *n);
 #endif
+
+extern volatile uint32_t nfos_ap_index;
+volatile uint32_t nfos_ap_index = 1;
+
+static nfos_boot_info_t boot_info = {};
 
 int main(nfos_multiboot2_header_t *mb2_hdr) {
   static char *argv[] = {
@@ -46,7 +48,6 @@ int main(nfos_multiboot2_header_t *mb2_hdr) {
   };
 
   static const int argc = (sizeof(argv) / sizeof(argv[0])) - 1;
-  static boot_info_t boot_info = {};
 
 #ifndef KLEE_VERIFICATION
   nfos_serial_init();
@@ -63,8 +64,8 @@ int main(nfos_multiboot2_header_t *mb2_hdr) {
   }
 
   while (nfos_ap_index < boot_info.num_cpus) {
-    uint8_t current_ap_index = nfos_ap_index;
-    uint8_t cpu_id = boot_info.cpus[current_ap_index];
+    uint32_t current_ap_index = nfos_ap_index;
+    uint32_t cpu_id = boot_info.cpus[current_ap_index].apic_id;
     printf("Starting cpu with APIC id %u\n", cpu_id);
 
     asm volatile("mfence" ::: "memory");
@@ -97,7 +98,7 @@ int main(nfos_multiboot2_header_t *mb2_hdr) {
   return 0;
 }
 
-static bool copy_ap_init_code(void *dest, boot_info_t *info) {
+static bool copy_ap_init_code(void *dest, nfos_boot_info_t *info) {
   size_t code_size = (size_t)(ap_init_end - ap_init_start);
   size_t mem_lower = info->mem_lower << NFOS_MULTIBOOT2_MEM_LOWER_LSHIFT;
   if (AP_INIT_CODE_ADDRESS + code_size > mem_lower) {

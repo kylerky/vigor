@@ -57,22 +57,22 @@ typedef struct nfos_madt_header {
   uint32_t flags;
 } PACKED nfos_madt_header_t;
 
-typedef struct nfos_madt_ic_header {
+typedef struct nfos_structure_header {
   uint8_t type;
   uint8_t length;
-} PACKED nfos_madt_ic_header_t;
+} PACKED nfos_structure_header_t;
 
-typedef struct nfos_madt_processor {
-  nfos_madt_ic_header_t header;
+typedef struct nfos_madt_apic {
+  nfos_structure_header_t header;
   uint8_t uid;
   uint8_t apic_id;
   uint32_t flags;
-} PACKED nfos_madt_processor_t;
+} PACKED nfos_madt_apic_t;
 
 uint8_t nfos_acpi_checksum(void *ptr, size_t len);
 #define NFOS_ACPI_CHECKSUM_STRUCT(s) nfos_acpi_checksum((s), sizeof(*(s)))
 
-void nfos_acpi_parse_rsdp(void *p, boot_info_t *info);
+void nfos_acpi_parse_rsdp(void *p, nfos_boot_info_t *info);
 
 enum nfos_acpi_ic_type {
   NFOS_ACPI_IC_PROCESSOR_APIC = 0,

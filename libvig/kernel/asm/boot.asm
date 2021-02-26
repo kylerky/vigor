@@ -257,7 +257,7 @@ start:
     ; CPUID.0H:EAX (EAX in CPUID leaf 0x0), which indicates the maximum supported
     ; basic information leaf, will be 2. Because we need to query information in
     ; some leaves between 2 and 0x80000000, we must check that the maximum
-    ; supported basic information leaf is greater than 2.
+    ; supported basic information leaf is at least 11.
     ;
     ; This instruction zeros the EAX register because the XOR of any value with
     ; itself is always 0.
@@ -265,10 +265,10 @@ start:
     cpuid
 
 
-    ; The branch is taken if and only if eax <= 2, and therefore it is taken if
-    ; and only if the maximum supported basic information leaf is 2 or less.
-    cmp eax, 2
-    jbe .unsupported_cpu
+    ; The branch is taken if and only if eax < 0xb, and therefore it is taken if
+    ; and only if the maximum supported basic information leaf is less than 11.
+    cmp eax, 0xb
+    jb .unsupported_cpu
 
 
     ; Support for 64-bit mode (long mode) is indicated by
@@ -342,7 +342,7 @@ start:
     ; require.
     ; As before, the assembler evaluates bitwise and simple arithmetic expressions
     ; at assembly time.
-    mov eax, (1 << 0) | (1 << 1) | (1 << 9) | (1 << 13) | (1 << 19) | (1 << 20) | (1 << 23) | (1 << 25) | (1 << 26) | (1 << 28) | (1 << 29) | (1 << 30)
+    mov eax, (1 << 0) | (1 << 1) | (1 << 9) | (1 << 13) | (1 << 19) | (1 << 20) | (1 << 21) | (1 << 23) | (1 << 25) | (1 << 26) | (1 << 28) | (1 << 29) | (1 << 30)
     and ecx, eax
     cmp ecx, eax
     jnz .unsupported_cpu
@@ -513,6 +513,11 @@ BITS 64
     xgetbv
     or eax, 7
     xsetbv
+
+    mov ecx, 0x1b
+    rdmsr
+    or eax, 1 << 10
+    wrmsr
 
     ; This instruction increments the stack pointer by 4 and directs the
     ; execution to the location pointed to by the stack pointer.

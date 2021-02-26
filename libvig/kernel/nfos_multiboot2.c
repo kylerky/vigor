@@ -7,16 +7,11 @@
 #include "nfos_boot_info.h"
 #include "nfos_utils.h"
 
-// #define NEXT_TAG(t)                                                            \
-//   do {                                                                         \
-//     uintptr_t p = (((uintptr_t)(t)) + (t)->size);                   \
-//     (t) = (__typeof__(t))((p + 7) & (~((uintptr_t)7)));                        \
-//   } while (false)
 #define NEXT_TAG(t)                                                            \
   (__typeof__(t))(((((uintptr_t)(t)) + (t)->size) + 7) & (~((uintptr_t)7)))
 
 bool nfos_get_boot_info(nfos_multiboot2_header_t *mb2_header,
-                        boot_info_t *info) {
+                        nfos_boot_info_t *info) {
   nfos_multiboot2_tag_t *tag = (nfos_multiboot2_tag_t *)(mb2_header + 1);
 
   bool mem_done = false;

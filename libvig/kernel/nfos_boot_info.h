@@ -5,10 +5,16 @@
 
 #include "nfos_utils.h"
 
+typedef struct nfos_cpu_info {
+  uint32_t apic_id;
+  uint32_t node_id;
+  uint32_t core_id;
+} nfos_cpu_info_t;
+
 typedef struct boot_info {
   uint32_t mem_lower;
-  uint8_t cpus[MAX_CPUS];
+  nfos_cpu_info_t cpus[MAX_CPUS];
   size_t num_cpus;
-} boot_info_t;
+} nfos_boot_info_t;
 
 #endif // NFOS_BOOT_INFO_H
