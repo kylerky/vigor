@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -13,6 +14,9 @@ static void get_cpus(nfos_xsdt_t *xsdt, nfos_boot_info_t *info);
 static bool process_sdt(nfos_sdt_header_t *header, nfos_boot_info_t *info);
 
 static bool read_madt(nfos_sdt_header_t *header, nfos_boot_info_t *info);
+static bool read_srat(nfos_sdt_header_t *header, nfos_boot_info_t *info);
+
+static uint32_t get_node_id(nfos_srat_apic_t *apic);
 
 uint8_t nfos_acpi_checksum(void *ptr, size_t len) {
   uint8_t sum = 0;
@@ -80,6 +84,9 @@ static bool process_sdt(nfos_sdt_header_t *header, nfos_boot_info_t *info) {
   if (read_madt(header, info)) {
     return false;
   }
+  if (read_srat(header, info)) {
+    return false;
+  }
   return false;
 }
 
@@ -109,4 +116,64 @@ static bool read_madt(nfos_sdt_header_t *header, nfos_boot_info_t *info) {
   }
 
   return true;
+}
+
+static bool read_srat(nfos_sdt_header_t *header, nfos_boot_info_t *info) {
+  if (memcmp(header->signature, "SRAT", sizeof(header->signature)) != 0 ||
+      nfos_acpi_checksum(header, header->length) != 0) {
+    return false;
+  }
+
+  nfos_srat_header_t *srat = (nfos_srat_header_t *)header;
+
+  nfos_structure_header_t *affinity = (nfos_structure_header_t *)(srat + 1);
+  size_t affinity_len = srat->header.length - sizeof(*srat);
+  nfos_structure_header_t *affinity_end =
+      PTR_ADVANCE_BYTES(affinity, affinity_len);
+  for (; affinity < affinity_end;
+       affinity = PTR_ADVANCE_BYTES(affinity, affinity->length)) {
+    if (affinity->type != NFOS_SRAT_APIC) {
+      continue;
+    }
+
+    nfos_srat_apic_t *apic = (nfos_srat_apic_t *)affinity;
+    if (apic->flags != 1) {
+      continue;
+    }
+
+    uint32_t node_id = get_node_id(apic);
+    size_t i = 0;
+    for (; i < info->num_nodes; ++i) {
+      if (info->nodes[i].id == node_id) {
+        break;
+      }
+    }
+
+    nfos_node_info_t *node = &info->nodes[i];
+    // found a new node
+    if (i == info->num_nodes) {
+      if (info->num_nodes >= MAX_NODES) {
+        break;
+      }
+
+      ++info->num_nodes;
+      node->id = node_id;
+    }
+
+    if (node->num_cpus >= MAX_CPUS) {
+      break;
+    }
+
+    node->cpus[node->num_cpus] = apic->apic_id;
+    ++node->num_cpus;
+  }
+
+  return true;
+}
+
+static uint32_t get_node_id(nfos_srat_apic_t *apic) {
+  uint32_t node = *(uint32_t *)apic->proximity_domain_high;
+  node <<= 3;
+  node |= (uint32_t)apic->proximity_domain_low;
+  return node;
 }

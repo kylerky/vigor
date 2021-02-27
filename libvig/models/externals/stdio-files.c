@@ -2,7 +2,9 @@
 #include "libvig/models/hardware.h"
 
 #include "libvig/kernel/nfos_pci.h"
+#include "libvig/kernel/nfos_boot_info.h"
 
+#include <stddef.h>
 #include <dirent.h>
 #include <endian.h>
 #include <fcntl.h>
@@ -91,27 +93,18 @@ const int MSR_FD = 1337;
 
 int access(const char *pathname, int mode) {
   if (mode == F_OK) {
-    // Other CPUs
-    const char *cpu_prefix = "/sys/devices/system/cpu/cpu";
-    const char *cpu0_prefix = "/sys/devices/sytem/cpu/cpu0";
-
-    if (pathname[strlen(cpu_prefix)] != '0'
-        && !strncmp(pathname, cpu_prefix, strlen(cpu_prefix))) {
-      return -1; // TODO
-    }
-
-    const char *node_prefix = "/sys/devices/system/node/node";
-    const char *node0_prefix = "/sys/devices/system/node/node0/cpu0";
-
-    if ( strncmp(pathname, node0_prefix, strlen(node0_prefix)) != 0
-        && !strncmp(pathname, node_prefix, strlen(node_prefix))) {
-      return -1;
-    }
-
     for (int n = 0; n < sizeof(FILES) / sizeof(FILES[0]); n++) {
       if (FILES[n].path != NULL && !strcmp(pathname, FILES[n].path)) {
         return 0;
       }
+    }
+
+    static const char cpu_prefix[] = "/sys/devices/system/cpu/cpu";
+    static const char node_prefix[] = "/sys/devices/system/node/node";
+
+    if (strncmp(pathname, cpu_prefix, sizeof(cpu_prefix) - 1) == 0 ||
+        strncmp(pathname, node_prefix, sizeof(node_prefix) - 1) == 0) {
+      return -1;
     }
   }
 
@@ -124,7 +117,8 @@ int stat(const char *path, struct stat *buf) {
       if (FILES[n].content == FILE_CONTENT_NOTPRESENT) {
         return -1;
       }
-      // DPDK doesn't seem to need *buf, so let's not set it but ensure it's not used
+      // DPDK doesn't seem to need *buf, so let's not set it but ensure it's not
+      // used
       klee_forbid_access(buf, sizeof(struct stat), "stat buf");
       return 0;
     }
@@ -134,7 +128,8 @@ int stat(const char *path, struct stat *buf) {
 }
 
 int open(const char *file, int oflag, ...) {
-  if (!strcmp(file, "/sys/module/vfio/parameters/enable_unsafe_noiommu_mode") && oflag == O_RDONLY) {
+  if (!strcmp(file, "/sys/module/vfio/parameters/enable_unsafe_noiommu_mode") &&
+      oflag == O_RDONLY) {
     return -1; // explicitly no VFIO
   }
 
@@ -226,8 +221,8 @@ int ftruncate(int fd, off_t length) {
 
   // DPDK want to also truncate rtemap_* files which are tagged with
   // FILE_CONTENT_HUGEPAGE
-  if (FILES[fd].content == FILE_CONTENT_HPINFO
-      || FILES[fd].content == FILE_CONTENT_HUGEPAGE) {
+  if (FILES[fd].content == FILE_CONTENT_HPINFO ||
+      FILES[fd].content == FILE_CONTENT_HUGEPAGE) {
 
     FILES[fd].content = (char *)malloc(length);
     memset(FILES[fd].content, 0, length);
@@ -396,7 +391,6 @@ ssize_t __getdents(int fd, char *buf, size_t nbytes) {
   return len;
 }
 
-
 static int file_counter;
 int stub_add_file(char *path, char *content) {
   struct stub_file file;
@@ -473,8 +467,8 @@ void *mmap(void *addr, size_t length, int prot, int flags, int fd,
     // Create an anonymous file.
     fd = stub_add_file(ANON_MEM_NAME, NULL);
     // Only allocate one MB at most otherwise we run out of memory.
-    if (length > 1024*1024) {
-	length = 1024*1024;
+    if (length > 1024 * 1024) {
+      length = 1024 * 1024;
     }
   }
   // We need to align the returned value to the page size.
@@ -544,7 +538,7 @@ int munmap(void *addr, size_t length) {
       if (FILES[n].mmaps[m].mem == addr) {
 
         if (FILES[n].path != ANON_MEM_NAME) {
-	  klee_assert(FILES[n].mmaps[m].mem_len == length);
+          klee_assert(FILES[n].mmaps[m].mem_len == length);
         }
 
         // We never free the mappings or decrease mmaps_len, since we keep old
@@ -565,7 +559,7 @@ int munmap(void *addr, size_t length) {
 
 int unlink(const char *pathname) {
   for (int n = 0; n < sizeof(FILES) / sizeof(FILES[0]); n++) {
-    if(FILES[n].path != NULL && !strcmp(pathname, FILES[n].path)) {
+    if (FILES[n].path != NULL && !strcmp(pathname, FILES[n].path)) {
       return 0;
     }
   }
@@ -586,7 +580,8 @@ int __xstat(int version, const char *path, struct stat *buf) {
   return stat(path, buf);
 }
 
-void stub_stdio_files_init(struct nfos_pci_nic *devs, int n) {
+void stub_stdio_files_init(struct nfos_pci_nic *devs, int num_devs,
+                           nfos_boot_info_t *info) {
   // Helper methods declarations
   char *stub_pci_file(const char *device_name, const char *file_name);
   char *stub_pci_folder(const char *device_name);
@@ -600,7 +595,7 @@ void stub_stdio_files_init(struct nfos_pci_nic *devs, int n) {
   assert(devs != NULL);
 
   PCI_DEVICES = devs;
-  NUM_PCI_DEVICES = n;
+  NUM_PCI_DEVICES = num_devs;
 
   // Files initialization
   int f = 0;
@@ -647,7 +642,8 @@ void stub_stdio_files_init(struct nfos_pci_nic *devs, int n) {
     int driver_fd =
         stub_add_link(stub_pci_file(dev, "driver"), "/drivers/igb_uio");
 
-    stub_add_file(stub_pci_file(dev, "iommu/intel-iommu/cap"), FILE_CONTENT_NOTPRESENT);
+    stub_add_file(stub_pci_file(dev, "iommu/intel-iommu/cap"),
+                  FILE_CONTENT_NOTPRESENT);
 
     // 'uio' folder, itself containing an empty folder 'uioN' (where N is the
     // device number)
@@ -754,20 +750,44 @@ void stub_stdio_files_init(struct nfos_pci_nic *devs, int n) {
 
   // /sys stuff
   // We pretend all CPUs on NUMA node 0 exist
-  stub_add_file("/sys/devices/system/cpu/cpu0/topology/core_id",
-                "0\n"); // CPU 0 is core ID 0
+  char cpu[1024];
+  char core_id[10];
+  for (size_t i = 0; i < info->num_cpus; ++i) {
+    snprintf(cpu, sizeof(cpu), "/sys/devices/system/cpu/cpu%u/topology/core_id",
+             i);
+    snprintf(core_id, sizeof(core_id), "%u\n", info->cpus[i].core_id);
+    stub_add_file(strdup(cpu), strdup(core_id)); // CPU 0 is core ID 0
+  }
 
-  stub_add_file("/sys/devices/system/node/node0/cpu0", 0);
+  char node[1024];
+  for (size_t node_idx = 0; node_idx < info->num_nodes; ++node_idx) {
+    nfos_node_info_t *node_info = &info->nodes[node_idx];
+    for (size_t cpu_idx = 0; cpu_idx < node_info->num_cpus; ++cpu_idx) {
+      snprintf(node, sizeof(node), "/sys/devices/system/node/node%lu/cpu%u",
+               node_idx, node_info->cpus[cpu_idx]);
+      stub_add_file(strdup(node), NULL); // CPU 0 is core ID 0
+    }
 
-  int huge_free_node_fd =
-      stub_add_file("/sys/devices/system/node/node0/hugepages/hugepages-2048kB/free_hugepages",
-                    strdup(huge_free_value));
+    snprintf(node, sizeof(node),
+             "/sys/devices/system/node/node%lu/hugepages/hugepages-2048kB/"
+             "free_hugepages",
+             node_idx);
 
-  int huge_2048_node_fd =
-      stub_add_folder("/sys/devices/system/node/node0/hugepages/hugepages-2048kB", 1,
-                       huge_free_node_fd);
+    char *free_value = "0\n";
+    if (node_idx == 0) {
+      free_value = strdup(huge_free_value);
+    }
+    int huge_free_node_fd = stub_add_file(strdup(node), free_value);
 
-  stub_add_folder("/sys/devices/system/node/node0/hugepages", 1, huge_2048_node_fd);
+    snprintf(node, sizeof(node),
+             "/sys/devices/system/node/node%lu/hugepages/hugepages-2048kB",
+             node_idx);
+    int huge_2048_node_fd = stub_add_folder(strdup(node), 1, huge_free_node_fd);
+
+    snprintf(node, sizeof(node), "/sys/devices/system/node/node%lu/hugepages",
+             node_idx);
+    stub_add_folder(strdup(node), 1, huge_2048_node_fd);
+  }
 
   // /sys/module has to be there for DPDK's modules check to not just fail;
   // but we do not have VFIO
@@ -823,7 +843,7 @@ __attribute__((constructor(150))) // High prio, must execute after other stuff
   struct nfos_pci_nic *devs;
 
   devs = stub_hardware_get_nics(&num_devs);
-  stub_stdio_files_init(devs, num_devs);
+  stub_stdio_files_init(devs, num_devs, NULL);
 }
 #endif // (defined VIGOR_MODEL_HARDWARE) && !(defined NFOS)
 

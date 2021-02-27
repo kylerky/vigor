@@ -14,6 +14,8 @@
 #define ACPI_SDT_SIGNATURE_LENGTH 4
 #define ACPI_SDT_IGNORED_LENGTH 28
 
+#define ACPI_SRAT_HEADER_RESERVED_LENGTH 12
+
 typedef struct nfos_rsdp_v1 {
   char signature[ACPI_RSDP_SIGNATURE_LENGTH];
   uint8_t checksum;
@@ -69,6 +71,21 @@ typedef struct nfos_madt_apic {
   uint32_t flags;
 } PACKED nfos_madt_apic_t;
 
+typedef struct nfos_srat_header {
+  nfos_sdt_header_t header;
+  uint8_t reserved[ACPI_SRAT_HEADER_RESERVED_LENGTH];
+} PACKED nfos_srat_header_t;
+
+typedef struct nfos_srat_apic {
+  nfos_structure_header_t header;
+  uint8_t proximity_domain_low;
+  uint8_t apic_id;
+  uint32_t flags;
+  uint8_t local_sapic_eid;
+  uint8_t proximity_domain_high[3];
+  uint32_t clock_domain;
+} PACKED nfos_srat_apic_t;
+
 uint8_t nfos_acpi_checksum(void *ptr, size_t len);
 #define NFOS_ACPI_CHECKSUM_STRUCT(s) nfos_acpi_checksum((s), sizeof(*(s)))
 
@@ -76,6 +93,10 @@ void nfos_acpi_parse_rsdp(void *p, nfos_boot_info_t *info);
 
 enum nfos_acpi_ic_type {
   NFOS_ACPI_IC_PROCESSOR_APIC = 0,
+};
+
+enum nfos_srat_affinity_type {
+  NFOS_SRAT_APIC = 0,
 };
 
 #endif // NFOS_ACPI_H

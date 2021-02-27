@@ -463,22 +463,28 @@ BITS 64
     ; 64-bit value of rsp.
     mov esp, stack_bottom
 
+    ; According to section 3.4.1 - General-Purpose Registers of the CPU manual
+    ; the upper 32 bits of rdi are undefined in 32-bit modes.
+    ;
+    ; This instruction will set the upper 32 bits of rdi to zeros.
+    mov edi, edi
+    push rdi
     ; This function enables the features that we need before calling main.
     ;
     ; It will push a 64-bit address to the stack, which now has 1MiB of space
     ; available. Therefore, calling this function is safe.
     call .before_main
 
+    mov ecx, edx
+    mov edx, esi
+    mov esi, edi
+    pop rdi
+
     ; NFOS needs to guarantee that the stack pointer is aligned on a 16-byte
     ; boundary before main() is invoked. We instruct the assembler to align
     ; stack_bottom to a 16-byte boundary.
     mov esp, stack_bottom
 
-    ; According to section 3.4.1 - General-Purpose Registers of the CPU manual
-    ; the upper 32 bits of rdi are undefined in 32-bit modes.
-    ;
-    ; This instruction will set the upper 32 bits of rdi to zeros.
-    mov edi, edi
     ; At this point all the preconditions have been satisfied and NFOS can invoke
     ; the C main function
     call main
@@ -518,6 +524,25 @@ BITS 64
     rdmsr
     or eax, 1 << 10
     wrmsr
+
+
+    mov eax, 0xb
+    xor ecx, ecx
+    cpuid
+    cmp ch, 1
+    jne .unsupported_cpu
+    and eax, 0x1f
+    mov esi, eax
+
+    mov edi, edx
+
+    mov eax, 0xb
+    mov ecx, 1
+    cpuid
+    cmp ch, 2
+    jne .unsupported_cpu
+    and eax, 0x1f
+    mov edx, eax
 
     ; This instruction increments the stack pointer by 4 and directs the
     ; execution to the location pointed to by the stack pointer.
